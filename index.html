@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Classroom Hub</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f4f7fb;color:#172033}
+header{background:linear-gradient(135deg,#1a73e8,#6c63ff);color:white;text-align:center;padding:45px 20px}
+header h1{margin:0 0 10px;font-size:36px}
+main{width:min(950px,92%);margin:30px auto}
+.card{background:white;border-radius:18px;padding:25px;margin-bottom:20px;box-shadow:0 8px 25px rgba(0,0,0,.08)}
+button{border:0;border-radius:12px;padding:13px 18px;font-size:15px;font-weight:bold;cursor:pointer;margin:5px}
+#authorize_button{background:#1a73e8;color:white}
+#demo_button{background:#eef2ff;color:#334155}
+#signout_button{background:#ef4444;color:white}
+button:disabled{opacity:.5;cursor:not-allowed}
+#status{margin-top:15px;padding:12px;border-radius:10px;background:#f1f5f9}
+.course{border:1px solid #e2e8f0;border-radius:14px;padding:16px;margin:10px 0}
+.course h3{margin:0 0 6px}
+.muted{color:#64748b}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+<h1>📚 Classroom Hub</h1>
+<p>Conecta tus cursos de Google Classroom en un solo lugar</p>
+</header>
+<main>
+<section class="card">
+<h2>Conectar con Google Classroom</h2>
+<p class="muted">Autoriza el acceso para consultar los cursos de tu cuenta.</p>
+<button id="authorize_button" onclick="handleAuthClick()" disabled>Conectar con Google</button>
+<button id="signout_button" onclick="handleSignoutClick()" class="hidden">Cerrar sesión</button>
+<button id="demo_button" onclick="loadDemo()">🧪 Probar modo demo</button>
+<div id="status">Esperando conexión...</div>
+</section>
+<section class="card">
+<h2>Mis cursos</h2>
+<div id="courses"><p class="muted">Todavía no hay cursos cargados.</p></div>
+</section>
+</main>
+
+<script>
+const CLIENT_ID = "PON_AQUI_TU_CLIENT_ID";
+const API_KEY = "PON_AQUI_TU_API_KEY";
+const DISCOVERY_DOC = "https://classroom.googleapis.com/$discovery/rest";
+const SCOPES = "https://www.googleapis.com/auth/classroom.courses.readonly";
+
+let tokenClient;
+let gapiInited = false;
+let gisInited = false;
+
+const status = document.getElementById("status");
+const authorizeButton = document.getElementById("authorize_button");
+const signoutButton = document.getElementById("signout_button");
+
+function setStatus(message){status.textContent=message}
+
+function gapiLoaded(){gapi.load("client",initializeGapiClient)}
+
+async function initializeGapiClient(){
+try{
+await gapi.client.init({apiKey:API_KEY,discoveryDocs:[DISCOVERY_DOC]});
+gapiInited=true;
+maybeEnableButtons();
+}catch(error){
+console.error(error);
+setStatus("Google todavía no está configurado. Usa el modo demo mientras configuramos las credenciales.");
+}
+}
+
+function gisLoaded(){
+tokenClient=google.accounts.oauth2.initTokenClient({
+client_id:CLIENT_ID,
+scope:SCOPES,
+callback:""
+});
+gisInited=true;
+maybeEnableButtons();
+}
+
+function maybeEnableButtons(){
+if(gapiInited&&gisInited&&CLIENT_ID!=="PON_AQUI_TU_CLIENT_ID"&&API_KEY!=="PON_AQUI_TU_API_KEY"){
+authorizeButton.disabled=false;
+}
+}
+
+function handleAuthClick(){
+tokenClient.callback=async function(response){
+if(response.error!==undefined){
+console.error(response);
+setStatus("No se pudo conectar con Google Classroom.");
+return;
+}
+signoutButton.classList.remove("hidden");
+authorizeButton.textContent="Actualizar cursos";
+setStatus("✅ Conectado. Cargando cursos...");
+await listCourses();
+};
+if(gapi.client.getToken()===null){
+tokenClient.requestAccessToken({prompt:"consent"});
+}else{
+tokenClient.requestAccessToken({prompt:""});
+}
+}
+
+function handleSignoutClick(){
+const token=gapi.client.getToken();
+if(token!==null){
+google.accounts.oauth2.revoke(token.access_token);
+gapi.client.setToken("");
+}
+signoutButton.classList.add("hidden");
+authorizeButton.textContent="Conectar con Google";
+setStatus("Sesión cerrada.");
+document.getElementById("courses").innerHTML='<p class="muted">Todavía no hay cursos cargados.</p>';
+}
+
+async function listCourses(){
+try{
+const response=await gapi.client.classroom.courses.list({pageSize:100});
+const courses=response.result.courses||[];
+if(courses.length===0){
+document.getElementById("courses").innerHTML='<p class="muted">No se encontraron cursos.</p>';
+setStatus("Conectado, pero no se encontraron cursos.");
+return;
+}
+renderCourses(courses);
+setStatus("✅ Cursos cargados correctamente.");
+}catch(error){
+console.error(error);
+setStatus("Error al obtener los cursos. Revisa los permisos de Google Cloud.");
+}
+}
+
+function renderCourses(courses){
+const container=document.getElementById("courses");
+container.innerHTML=courses.map(function(course){
+return '<div class="course"><h3>📘 '+escapeHtml(course.name||"Curso sin nombre")+'</h3><div class="muted">'+escapeHtml(course.section||"Sin sección")+'</div><small>ID: '+escapeHtml(course.id||"")+'</small></div>';
+}).join("");
+}
+
+function loadDemo(){
+const demoCourses=[
+{id:"demo-lenguaje",name:"Lenguaje — 5to Secundaria",section:"Curso de demostración"},
+{id:"demo-biologia",name:"Biología — 5to Secundaria",section:"Curso de demostración"},
+{id:"demo-historia",name:"Historia — 5to Secundaria",section:"Curso de demostración"}
+];
+renderCourses(demoCourses);
+setStatus("🧪 Modo demo activado. Google Classroom aún no está conectado.");
+}
+
+function escapeHtml(text){
+return String(text).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+}
+</script>
+
+<script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+<script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+</body>
+</html>
